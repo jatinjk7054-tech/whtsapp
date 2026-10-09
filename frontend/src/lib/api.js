@@ -123,6 +123,9 @@ export const api = {
       method: 'POST',
       body: { type: 'text', body, ...(replyToId ? { replyToId } : {}) },
     }),
+  // Module 11 — retry a failed outgoing message (reuses the same bubble).
+  retryMessage: (conversationId, messageId) =>
+    request(`/conversations/${conversationId}/messages/${messageId}/retry`, { method: 'POST' }),
   forwardMessage: (targetConversationId, sourceMessageId) =>
     request(`/conversations/${targetConversationId}/forward`, {
       method: 'POST',
@@ -191,7 +194,56 @@ export const api = {
   testAutomationRule: (body) => request('/automation/test', { method: 'POST', body }),
   listAutomationLogs: (filters = {}, signal) =>
     request(`/automation/logs${query(filters)}`, { signal }),
+
+  // Module 10 — Follow-up Reminders + notification bell. Both roles use these;
+  // the backend scopes every call to the caller's own permissions.
+  listReminders: (filters = {}, signal) => request(`/reminders${query(filters)}`, { signal }),
+  createReminder: (body) => request('/reminders', { method: 'POST', body }),
+  getReminder: (id, signal) => request(`/reminders/${id}`, { signal }),
+  updateReminder: (id, body) => request(`/reminders/${id}`, { method: 'PATCH', body }),
+  completeReminder: (id) => request(`/reminders/${id}/complete`, { method: 'POST' }),
+  cancelReminder: (id) => request(`/reminders/${id}/cancel`, { method: 'POST' }),
+  reopenReminder: (id) => request(`/reminders/${id}/reopen`, { method: 'POST' }),
+
+  listNotifications: (params = {}, signal) => request(`/notifications${query(params)}`, { signal }),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () => request('/notifications/read-all', { method: 'POST' }),
+
+  // Module 12 — WhatsApp voice calling. The browser owns the WebRTC session and
+  // only ever sends/receives SDP; no audio touches this API. The backend owns
+  // the call state machine and enforces conversation ownership.
+  getCallingStatus: (signal) => request('/calls/status', { signal }),
+  listIncomingCalls: (signal) => request('/calls/incoming', { signal }),
+  getCall: (id, signal) => request(`/calls/${id}`, { signal }),
+  startCall: (conversationId, sdpOffer) =>
+    request(`/conversations/${conversationId}/calls`, { method: 'POST', body: { sdpOffer } }),
+  answerCall: (id, sdpAnswer) =>
+    request(`/calls/${id}/answer`, { method: 'POST', body: { sdpAnswer } }),
+  rejectCall: (id) => request(`/calls/${id}/reject`, { method: 'POST' }),
+  terminateCall: (id) => request(`/calls/${id}/terminate`, { method: 'POST' }),
+  listCalls: (conversationId, signal) =>
+    request(`/conversations/${conversationId}/calls`, { signal }),
 };
+
+/**
+ * Best-effort hang-up on page unload. `keepalive` lets the request outlive the
+ * document; if the browser drops it anyway, the backend sweeper ends the call.
+ */
+export function terminateCallOnUnload(id) {
+  const token = readToken();
+  try {
+    fetch(`${BASE_URL}/calls/${id}/terminate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      keepalive: true,
+    });
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
  * Inbound attachments live behind GET /api/media/:id, which is protected by the

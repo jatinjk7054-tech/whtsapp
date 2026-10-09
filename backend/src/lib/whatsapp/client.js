@@ -81,6 +81,10 @@ async function call(path, body) {
   return payload;
 }
 
+// Module 12 — the Calling API reuses the same POST/error plumbing. Exported so
+// the call signalling lives in its own file without duplicating token handling.
+export { call as graphPost, graphGet, metaApiError as toMetaApiError };
+
 export async function sendTextMessage({ to, body, contextMessageId }) {
   return call(`/${config.whatsapp.phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',

@@ -18,6 +18,7 @@ export default function MessageList({
   onReply,
   onForward,
   onJumpToMessage,
+  onRetryMessage,
   contactName,
 }) {
   const bottomRef = useRef(null);
@@ -119,6 +120,7 @@ export default function MessageList({
           onReply={onReply}
           onForward={onForward}
           onJumpToMessage={onJumpToMessage}
+          onRetryMessage={onRetryMessage}
         />
       ))}
 

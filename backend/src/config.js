@@ -21,6 +21,25 @@ if (missing.length > 0) {
 
 const int = (value, fallback) => (value === undefined ? fallback : Number(value));
 
+/**
+ * Module 12 — ICE servers for browser WebRTC. STUN only by default; a TURN
+ * relay can be supplied as JSON when customers sit behind symmetric NAT. The
+ * value is handed to authenticated staff only (the browser needs it), so never
+ * put a long-lived TURN secret here without accepting that exposure.
+ */
+const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+function parseIceServers(raw) {
+  if (!raw) return DEFAULT_ICE_SERVERS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch {
+    console.error('CALLING_ICE_SERVERS is not valid JSON; using the default STUN server.');
+  }
+  return DEFAULT_ICE_SERVERS;
+}
+
 // localhost / 127.0.0.1 par koi bhi port, sirf http(s). Ye Vite ke port drift
 // (5173, 5174, ...) ko dev me absorb karta hai; production isse kabhi use nahi karti.
 const LOCAL_DEV_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d{1,5})?$/;
@@ -81,6 +100,16 @@ export const config = {
         'Namaste 🙏\nBeing Sevak Charitable Trust se sampark karne ke liye dhanyavaad.\nKripya apna naam aur apni query bhejein. Hamari team jald aapse sampark karegi.').replace(/\\n/g, '\n'),
     get enabled() {
       return Boolean(this.phoneNumberId && this.accessToken);
+    },
+  },
+  // Module 12 — WhatsApp Business Calling (voice). Disabled unless explicitly
+  // switched on, so existing installs are never surprised by a new webhook
+  // field or a call button they did not configure.
+  calling: {
+    enabled: process.env.WHATSAPP_CALLING_ENABLED === 'true',
+    iceServers: parseIceServers(process.env.CALLING_ICE_SERVERS),
+    get configured() {
+      return config.whatsapp.enabled && this.enabled;
     },
   },
 };

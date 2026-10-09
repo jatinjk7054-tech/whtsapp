@@ -11,12 +11,33 @@ import {
   updateConversationStatus,
 } from './conversation.repository.js';
 import { listMessages, markConversationRead, searchMessages } from './message.repository.js';
+import { markMessageAsRead } from '../lib/whatsapp/client.js';
 
 const isAdmin = (staff) => staff.role === 'admin';
 
 const notFound = () => new HttpError(404, 'Conversation not found');
 const notYours = () =>
   new HttpError(403, 'This conversation is assigned to another staff member');
+
+/**
+ * Best-effort: tell WhatsApp the customer\'s messages were read, so the
+ * customer sees blue ticks. Runs ONLY when an agent actually opens a thread
+ * with unread inbound messages (the frontend sends markRead=true only for that,
+ * never for silent background polls). A Meta failure must never break the thread
+ * response, so every error is swallowed and logged.
+ */
+function sendReadReceipts(waMessageIds) {
+  for (const waMessageId of waMessageIds) {
+    Promise.resolve()
+      .then(() => markMessageAsRead(waMessageId))
+      .catch((error) => {
+        console.error(
+          `Failed to send WhatsApp read receipt for ${waMessageId}:`,
+          error.message
+        );
+      });
+  }
+}
 
 function resolveScope(staff, { view, assignedStaffId }) {
   // Admins may inspect any single agent's queue via ?assignedStaffId=<id>.
@@ -92,8 +113,10 @@ export async function getThread(staff, conversationId, { markRead = false, ...pa
   const messages = await listMessages(conversationId, { limit: 100, ...pagination });
 
   if (markRead && conversation.unread_count > 0) {
-    await markConversationRead(conversationId, staff.id);
+    const marked = await markConversationRead(conversationId, staff.id);
     conversation.unread_count = 0;
+    // The agent has now genuinely read these; send WhatsApp the read receipt.
+    if (marked.waMessageIds.length) sendReadReceipts(marked.waMessageIds);
   }
 
   return { conversation, messages };

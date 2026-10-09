@@ -39,7 +39,7 @@ export async function getAnalyticsTimezone() {
 /** Successfully-sent outbound states. Failed / queued rows are never counted. */
 const SENT_OUTBOUND = `m.direction = 'outbound'
   AND m.sent_by_staff_id IS NOT NULL
-  AND m.status NOT IN ('failed', 'queued')`;
+  AND m.status NOT IN ('failed', 'queued', 'pending')`;
 
 /**
  * Conversations actually handled by each agent during the period.
@@ -178,7 +178,7 @@ export async function agentResponseStats(from, to, timezone) {
                 WHERE o.conversation_id = i.conversation_id
                   AND o.direction = 'outbound'
                   AND o.sent_by_staff_id IS NOT NULL
-                  AND o.status NOT IN ('failed', 'queued')
+                  AND o.status NOT IN ('failed', 'queued', 'pending')
                   AND (o.created_at > i.inb_at
                        OR (o.created_at = i.inb_at AND o.id > i.inb_id))) AS resp_at
          FROM run_start i
@@ -230,7 +230,7 @@ export async function agentDailyBreakdown(agentId, from, to, timezone) {
               COUNT(DISTINCT c.id)::int                                   AS chats_handled,
               COUNT(DISTINCT c.contact_id)::int                           AS customers,
               COUNT(*) FILTER (WHERE b.direction = 'outbound'
-                    AND b.status NOT IN ('failed', 'queued')
+                    AND b.status NOT IN ('failed', 'queued', 'pending')
                     AND b.sent_by_staff_id = $1)::int                     AS messages_sent
          FROM bucketed b
          JOIN conversations c ON c.id = b.conversation_id

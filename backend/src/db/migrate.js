@@ -16,6 +16,12 @@ const statusSchemaPath = path.join(here, 'status.schema.sql');
 const analyticsSchemaPath = path.join(here, 'analytics.schema.sql');
 // Module 9: automation settings, keyword rules, cooldown state and logs.
 const automationSchemaPath = path.join(here, 'automation.schema.sql');
+// Module 10: follow-up reminders + the per-staff notification feed.
+const remindersSchemaPath = path.join(here, 'reminders.schema.sql');
+// Module 11: outbound delivery/read status events + receipt columns.
+const messageStatusSchemaPath = path.join(here, 'message_status.schema.sql');
+// Module 12: voice calls + the call event log (idempotency).
+const callsSchemaPath = path.join(here, 'calls.schema.sql');
 
 const reset = process.argv.includes('--reset');
 
@@ -46,10 +52,13 @@ async function migrate() {
   const statusSql = await readFile(statusSchemaPath, 'utf8');
   const analyticsSql = await readFile(analyticsSchemaPath, 'utf8');
   const automationSql = await readFile(automationSchemaPath, 'utf8');
+  const remindersSql = await readFile(remindersSchemaPath, 'utf8');
+  const messageStatusSql = await readFile(messageStatusSchemaPath, 'utf8');
+  const callsSql = await readFile(callsSchemaPath, 'utf8');
 
   if (reset) {
     await pool.query(
-      'DROP TABLE IF EXISTS webhook_events, automation_logs, automation_rule_state, automation_rules, automation_settings, messages, conversation_status_history, conversations, contact_tags, tags, quick_replies, away_message_settings, contacts, staff, tasks CASCADE'
+      'DROP TABLE IF EXISTS call_events, calls, message_status_events, webhook_events, notifications, reminders, automation_logs, automation_rule_state, automation_rules, automation_settings, messages, conversation_status_history, conversations, contact_tags, tags, quick_replies, away_message_settings, contacts, staff, tasks CASCADE'
     );
     console.log('Dropped existing tables');
   }
@@ -60,6 +69,9 @@ async function migrate() {
   await pool.query(statusSql);
   await pool.query(analyticsSql);
   await pool.query(automationSql);
+  await pool.query(remindersSql);
+  await pool.query(messageStatusSql);
+  await pool.query(callsSql);
   console.log('Migrations applied');
 }
 

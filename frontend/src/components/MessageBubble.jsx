@@ -178,16 +178,25 @@ function useTemplateDefinition(message) {
 }
 
 const TICKS = {
+  pending: '🕘',
   queued: '🕘',
   sent: '✓',
   delivered: '✓✓',
   read: '✓✓',
+  failed: '⚠',
 };
 
 /** Types the backend's forwardMessage() is willing to re-send (text + media). */
 const FORWARDABLE_TYPES = new Set(['text', 'image', 'video', 'document', 'audio']);
 
-export default function MessageBubble({ message, contactName, onReply, onForward, onJumpToMessage }) {
+export default function MessageBubble({
+  message,
+  contactName,
+  onReply,
+  onForward,
+  onJumpToMessage,
+  onRetryMessage,
+}) {
   const isOutbound = message.direction === 'outbound';
   const isFailed = message.status === 'failed';
   const hasMedia = Boolean(message.media_url);
@@ -376,11 +385,22 @@ export default function MessageBubble({ message, contactName, onReply, onForward
           showBody && <p className="bubble-text">{message.body}</p>
         )}
 
-        {isFailed && message.error_detail && (
-          <p className="bubble-error">
-            Not delivered{message.error_code ? ` (code ${message.error_code})` : ''}:{' '}
-            {message.error_detail}
-          </p>
+        {isFailed && (
+          <div className="bubble-failed">
+            <p className="bubble-error">
+              Not delivered{message.error_code ? ` (code ${message.error_code})` : ''}
+              {message.error_detail ? `: ${message.error_detail}` : ''}
+            </p>
+            {onRetryMessage && typeof message.id === 'number' && (
+              <button
+                type="button"
+                className="bubble-retry"
+                onClick={() => onRetryMessage(message)}
+              >
+                ↻ Retry
+              </button>
+            )}
+          </div>
         )}
 
         <span className="bubble-meta">

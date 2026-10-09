@@ -14,6 +14,9 @@ import { quickReplyRouter } from '../quickreplies/quick-reply.routes.js';
 import { whatsappRouter } from '../whatsapp.routes.js';
 import { agentPerformanceRouter } from '../analytics/agent-performance.routes.js';
 import { automationRouter } from '../automation/automation.routes.js';
+import { reminderRouter } from '../reminders/reminder.routes.js';
+import { notificationRouter } from '../notifications/notification.routes.js';
+import { callRouter } from '../calls/call.routes.js';
 
 export const apiRouter = Router();
 
@@ -62,3 +65,6 @@ apiRouter.use('/quick-replies', quickReplyRouter);
 apiRouter.use('/whatsapp', whatsappRouter);
 apiRouter.use('/admin/agent-performance', agentPerformanceRouter);
 apiRouter.use('/automation', automationRouter);
+apiRouter.use('/reminders', reminderRouter);
+apiRouter.use('/notifications', notificationRouter);
+apiRouter.use('/calls', callRouter);

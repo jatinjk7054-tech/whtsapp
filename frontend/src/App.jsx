@@ -15,11 +15,28 @@ import TagManager from './components/TagManager.jsx';
 import AdminSettings from './components/AdminSettings.jsx';
 import AgentPerformance from './components/AgentPerformance.jsx';
 import AutomationSettings from './components/AutomationSettings.jsx';
+import RemindersDashboard from './components/RemindersDashboard.jsx';
+import ReminderForm from './components/ReminderForm.jsx';
+import CallOverlay from './components/CallOverlay.jsx';
+import CallHistory from './components/CallHistory.jsx';
+import CallingSetup from './components/CallingSetup.jsx';
+import { useVoiceCall } from './hooks/useVoiceCall.js';
+import {
+  browserNotificationsSupported,
+  getBrowserPref,
+  getSoundPref,
+  playChime,
+  requestBrowserPermission,
+  setBrowserPref,
+  setSoundPref,
+  showDesktopNotification,
+} from './lib/notify.js';
 
 const PAGE_SIZE = 100;
 const MAX_THREAD_PAGE = 200;
 const LIST_POLL_MS = 8000;
 const THREAD_POLL_MS = 6000;
+const NOTIF_POLL_MS = 15000;
 const SEARCH_DEBOUNCE_MS = 300;
 
 function describeError(error) {
@@ -65,6 +82,17 @@ export default function App() {
   const [performanceOpen, setPerformanceOpen] = useState(false);
   // Module 9: keyword automation + automation logs.
   const [automationOpen, setAutomationOpen] = useState(false);
+
+  // Module 10: the notification bell and the follow-up reminder surfaces.
+  const [notifications, setNotifications] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [notifSound, setNotifSound] = useState(() => getSoundPref());
+  const [notifBrowser, setNotifBrowser] = useState(() => getBrowserPref());
+  const [remindersOpen, setRemindersOpen] = useState(false);
+  // { conversation } to set a reminder on a specific thread, { reminder } to
+  // edit an existing one, or {} for a blank dashboard-created reminder.
+  const [reminderForm, setReminderForm] = useState(null);
+  const [remindersVersion, setRemindersVersion] = useState(0);
   // Module 6: bumped whenever an admin edits the Quick Reply library, so an
   // open composer popup reloads it without a page refresh.
   const [quickRepliesVersion, setQuickRepliesVersion] = useState(0);
@@ -72,6 +100,11 @@ export default function App() {
   const [contactSaving, setContactSaving] = useState(false);
   const [contactError, setContactError] = useState(null);
   const [profileWaId, setProfileWaId] = useState(null);
+
+  // Module 12 — voice calling surfaces. The WebRTC session itself lives in the
+  // useVoiceCall hook; these only track which modal is open.
+  const [callsHistoryConversation, setCallsHistoryConversation] = useState(null);
+  const [callingSetupOpen, setCallingSetupOpen] = useState(false);
 
   // Module 3: reply preview target, forward source message, and the message to
   // scroll to (search results and quoted-reply clicks).
@@ -85,6 +118,12 @@ export default function App() {
   const threadRequestRef = useRef(0);
   const threadLimitRef = useRef(PAGE_SIZE);
 
+  // Module 10: highest notification id seen, so only genuinely new arrivals
+  // trigger the chime / desktop popup (never the backlog at sign-in).
+  const lastNotifIdRef = useRef(0);
+  const notifSoundRef = useRef(notifSound);
+  const notifBrowserRef = useRef(notifBrowser);
+
   const staff = session?.staff ?? null;
   const isAdmin = staff?.role === 'admin';
 
@@ -93,6 +132,15 @@ export default function App() {
   useEffect(() => {
     setTokenReader(() => session?.token ?? null);
   }, [session]);
+
+  // Mirror the notification preferences into refs so the polling callback can
+  // read the latest value without being torn down and recreated on every toggle.
+  useEffect(() => {
+    notifSoundRef.current = notifSound;
+  }, [notifSound]);
+  useEffect(() => {
+    notifBrowserRef.current = notifBrowser;
+  }, [notifBrowser]);
 
   const signOut = useCallback(() => {
     clearSession();
@@ -117,9 +165,16 @@ export default function App() {
     setSettingsOpen(false);
     setPerformanceOpen(false);
     setAutomationOpen(false);
+    setNotifications([]);
+    setUnread(0);
+    setRemindersOpen(false);
+    setReminderForm(null);
+    lastNotifIdRef.current = 0;
     setReplyTo(null);
     setForwardSource(null);
     setFocusMessageId(null);
+    setCallsHistoryConversation(null);
+    setCallingSetupOpen(false);
   }, []);
 
   const endSession = useCallback(() => {
@@ -140,6 +195,10 @@ export default function App() {
     },
     [endSession]
   );
+
+  // Module 12 — the browser-side call session. It loads the calling config,
+  // polls for incoming calls, and owns the RTCPeerConnection + microphone.
+  const voice = useVoiceCall({ enabled: Boolean(session) && !booting, onAuthError: handleAuthFailure });
 
   // Validate whatever was in storage before trusting it.
   useEffect(() => {
@@ -165,6 +224,9 @@ export default function App() {
   useEffect(() => {
     if (!staff) return;
     setView(staff.role === 'admin' ? 'all' : 'mine');
+    // A fresh sign-in establishes a new notification baseline, so unread items
+    // that were already waiting never fire an alert on login.
+    lastNotifIdRef.current = 0;
   }, [staff]);
 
   useEffect(() => {
@@ -363,6 +425,135 @@ export default function App() {
     }
   }, [session, isAdmin, handleAuthFailure]);
 
+  /**
+   * Module 10 — fetch the notification feed. The backend sweeps due reminders
+   * first, so a reminder that has come due appears here without any timer on
+   * this side. Only notifications newer than the last one we saw raise a chime
+   * or a desktop popup, so the backlog never spams the user on login.
+   */
+  const loadNotifications = useCallback(async () => {
+    if (!session) return;
+    try {
+      const payload = await api.listNotifications({ limit: 30 });
+      const items = payload.items ?? [];
+      setNotifications(items);
+      setUnread(payload.unread ?? 0);
+
+      const newestId = items.reduce((max, item) => Math.max(max, item.id), 0);
+
+      if (lastNotifIdRef.current === 0) {
+        lastNotifIdRef.current = newestId;
+      } else if (newestId > lastNotifIdRef.current) {
+        const fresh = items.filter((item) => item.id > lastNotifIdRef.current && !item.isRead);
+        lastNotifIdRef.current = newestId;
+
+        if (fresh.length > 0) {
+          const first = fresh[0];
+          if (notifSoundRef.current) playChime();
+          if (notifBrowserRef.current) {
+            showDesktopNotification(first.title, first.body, () => {
+              if (first.conversationId) setSelectedId(first.conversationId);
+            });
+          }
+          // A new message also moves the sidebar unread badges.
+          loadConversations({ silent: true });
+        }
+      }
+    } catch (error) {
+      handleAuthFailure(error);
+    }
+  }, [session, loadConversations, handleAuthFailure]);
+
+  // Poll the bell, and refresh immediately whenever the tab regains focus so a
+  // user returning to the app sees the latest state without waiting.
+  useEffect(() => {
+    if (!session || booting) return undefined;
+
+    loadNotifications();
+
+    const timer = setInterval(() => {
+      if (!document.hidden) loadNotifications();
+    }, NOTIF_POLL_MS);
+
+    const onFocus = () => loadNotifications();
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [session, booting, loadNotifications]);
+
+  const handleOpenNotification = useCallback(
+    async (notification) => {
+      if (!notification.isRead) {
+        setNotifications((prev) =>
+          prev.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item))
+        );
+        setUnread((value) => Math.max(0, value - 1));
+        try {
+          await api.markNotificationRead(notification.id);
+        } catch (error) {
+          handleAuthFailure(error);
+        }
+      }
+
+      if (notification.conversationId) {
+        setRemindersOpen(false);
+        setProfileWaId(null);
+        setReplyTo(null);
+        setSelectedId(notification.conversationId);
+        setChatOpen(true);
+      } else if (notification.reminderId) {
+        setRemindersOpen(true);
+      }
+    },
+    [handleAuthFailure]
+  );
+
+  const handleMarkAllNotifRead = useCallback(async () => {
+    setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
+    setUnread(0);
+    try {
+      await api.markAllNotificationsRead();
+    } catch (error) {
+      handleAuthFailure(error);
+    }
+  }, [handleAuthFailure]);
+
+  const handleToggleNotifSound = useCallback((next) => {
+    setNotifSound(next);
+    setSoundPref(next);
+    if (next) playChime();
+  }, []);
+
+  const handleToggleNotifBrowser = useCallback(async (next) => {
+    if (!next) {
+      setNotifBrowser(false);
+      setBrowserPref(false);
+      return;
+    }
+    const permission = await requestBrowserPermission();
+    const granted = permission === 'granted';
+    setNotifBrowser(granted);
+    setBrowserPref(granted);
+  }, []);
+
+  const openReminderForConversation = useCallback(() => {
+    const current = thread?.conversation;
+    if (!current) return;
+    setReminderForm({ conversation: current });
+  }, [thread]);
+
+  const openNewReminder = useCallback(() => setReminderForm({}), []);
+
+  const openEditReminder = useCallback((reminder) => setReminderForm({ reminder }), []);
+
+  const handleReminderSaved = useCallback(() => {
+    setRemindersVersion((version) => version + 1);
+    loadNotifications();
+  }, [loadNotifications]);
+
   const loadOlderMessages = useCallback(async () => {
     if (!selectedId || loadingOlder || !thread?.messages?.length || !hasMore) return;
 
@@ -451,7 +642,7 @@ export default function App() {
         id: `pending-${Date.now()}`,
         conversation_id: selectedId,
         direction: 'outbound',
-        status: 'queued',
+        status: 'pending',
         type: 'text',
         body,
         sent_by_staff_id: staff.id,
@@ -493,6 +684,47 @@ export default function App() {
       await Promise.all(refresh);
     },
     [forwardSource, selectedId, loadConversations, loadThread]
+  );
+
+  // Module 11 — Retry a failed outgoing message. Optimistically flips the bubble
+  // back to pending, then re-reads the thread so the real stored status shows.
+  const handleRetryMessage = useCallback(
+    async (message) => {
+      if (!selectedId || !message?.id) return;
+      setThread((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages.map((m) =>
+                m.id === message.id
+                  ? { ...m, status: 'pending', error_code: null, error_detail: null }
+                  : m
+              ),
+            }
+          : prev
+      );
+      try {
+        await api.retryMessage(selectedId, message.id);
+      } catch (error) {
+        handleAuthFailure(error);
+        setThread((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: prev.messages.map((m) =>
+                  m.id === message.id
+                    ? { ...m, status: 'failed', error_detail: describeError(error) ?? 'Retry failed' }
+                    : m
+                ),
+              }
+            : prev
+        );
+        return;
+      }
+      await loadConversations({ silent: true });
+      await loadThread({ silent: true });
+    },
+    [selectedId, loadThread, loadConversations, handleAuthFailure]
   );
 
   const handleJumpToMessage = useCallback((messageId) => {
@@ -609,10 +841,46 @@ export default function App() {
         onManageSettings={() => setSettingsOpen(true)}
         onManagePerformance={() => setPerformanceOpen(true)}
         onManageAutomation={() => setAutomationOpen(true)}
+        onOpenReminders={() => setRemindersOpen(true)}
+        notifications={notifications}
+        unread={unread}
+        notifSound={notifSound}
+        notifBrowser={notifBrowser}
+        notifBrowserSupported={browserNotificationsSupported()}
+        onToggleNotifSound={handleToggleNotifSound}
+        onToggleNotifBrowser={handleToggleNotifBrowser}
+        onOpenNotification={handleOpenNotification}
+        onMarkAllNotifRead={handleMarkAllNotifRead}
       />
 
       {automationOpen && isAdmin && (
         <AutomationSettings onClose={() => setAutomationOpen(false)} />
+      )}
+
+      {remindersOpen && (
+        <RemindersDashboard
+          refreshSignal={remindersVersion}
+          onClose={() => setRemindersOpen(false)}
+          onNewReminder={openNewReminder}
+          onEditReminder={openEditReminder}
+          onOpenConversation={(conversationId) => {
+            setRemindersOpen(false);
+            setProfileWaId(null);
+            setReplyTo(null);
+            setSelectedId(conversationId);
+            setChatOpen(true);
+          }}
+        />
+      )}
+
+      {reminderForm && (
+        <ReminderForm
+          conversation={reminderForm.conversation ?? null}
+          reminder={reminderForm.reminder ?? null}
+          isAdmin={isAdmin}
+          onSaved={handleReminderSaved}
+          onClose={() => setReminderForm(null)}
+        />
       )}
 
       {performanceOpen && isAdmin && <AgentPerformance onClose={() => setPerformanceOpen(false)} />}
@@ -666,6 +934,50 @@ export default function App() {
         />
       )}
 
+      <CallOverlay
+        call={voice.activeCall ?? voice.incomingCall}
+        mode={voice.incomingCall && !voice.activeCall ? 'incoming' : 'active'}
+        phase={voice.phase}
+        elapsed={voice.elapsed}
+        muted={voice.muted}
+        error={voice.error}
+        onAnswer={voice.answerCall}
+        onDecline={voice.declineCall}
+        onEnd={voice.endCall}
+        onToggleMute={voice.toggleMute}
+        onOpenConversation={(conversationId) => {
+          if (!conversationId) return;
+          setProfileWaId(null);
+          setReplyTo(null);
+          setSelectedId(conversationId);
+          setChatOpen(true);
+        }}
+      />
+
+      {callsHistoryConversation && (
+        <CallHistory
+          conversationId={callsHistoryConversation.id}
+          conversationName={
+            callsHistoryConversation.contact_name?.trim() || callsHistoryConversation.contact_wa_id
+          }
+          canCall={
+            Boolean(voice.config?.enabled) &&
+            (isAdmin || callsHistoryConversation.assigned_staff_id === staff?.id) &&
+            callsHistoryConversation.status !== 'closed'
+          }
+          onCall={() => {
+            const target = callsHistoryConversation;
+            setCallsHistoryConversation(null);
+            voice.startCall(target);
+          }}
+          onClose={() => setCallsHistoryConversation(null)}
+        />
+      )}
+
+      {callingSetupOpen && isAdmin && (
+        <CallingSetup config={voice.config} onClose={() => setCallingSetupOpen(false)} />
+      )}
+
       {listError && (
         <div className="inbox-banner">
           <ErrorBanner
@@ -716,12 +1028,17 @@ export default function App() {
           quickRepliesVersion={quickRepliesVersion}
           replyTo={replyTo}
           focusMessageId={focusMessageId}
+          callingEnabled={Boolean(voice.config?.enabled)}
+          onStartCall={voice.startCall}
+          onOpenCallHistory={setCallsHistoryConversation}
+          onShowCallingSetup={() => setCallingSetupOpen(true)}
           onLoadOlder={loadOlderMessages}
           onRetry={() => loadThread()}
           onRetryOlder={loadOlderMessages}
           onClaim={handleClaim}
           onAssign={handleAssign}
           onStatusChange={handleStatusChange}
+          onSetReminder={openReminderForConversation}
           onOpenProfile={() => {
             const waId = thread?.conversation?.contact_wa_id;
             if (waId) setProfileWaId(waId);
@@ -734,6 +1051,7 @@ export default function App() {
           onCancelReply={handleCancelReply}
           onForward={setForwardSource}
           onJumpToMessage={handleJumpToMessage}
+          onRetryMessage={handleRetryMessage}
           onFocusHandled={handleFocusHandled}
           onBack={() => setChatOpen(false)}
         />

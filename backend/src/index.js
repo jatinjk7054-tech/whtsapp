@@ -8,6 +8,14 @@ import { ensureQuickReplies } from './quickreplies/quick-reply.repository.js';
 import { ensureStatusSchema } from './conversations/conversation.repository.js';
 import { ensureAnalyticsSchema } from './analytics/agent-performance.repository.js';
 import { ensureAutomationSchema } from './automation/automation.repository.js';
+import { ensureRemindersSchema } from './reminders/reminder.repository.js';
+import { ensureNotificationsSchema } from './notifications/notification.repository.js';
+import {
+  ensureMessageStatusSchema,
+  reconcileStatusEvents,
+} from './conversations/message.repository.js';
+import { ensureCallsSchema } from './calls/call.repository.js';
+import { sweepStaleCalls } from './calls/call.service.js';
 import { whenIngestIdle } from './conversations/inbound.service.js';
 
 const app = createApp();
@@ -66,6 +74,47 @@ const server = app.listen(config.port, async () => {
   } catch (error) {
     console.error('Automation schema upgrade failed (run `npm run migrate`):', error.message);
   }
+
+  try {
+    // Module 10: follow-up reminders + the per-staff notification feed —
+    // idempotent, so an existing install gains Module 10 with no manual step.
+    await ensureRemindersSchema();
+    await ensureNotificationsSchema();
+  } catch (error) {
+    console.error('Reminder schema upgrade failed (run `npm run migrate`):', error.message);
+  }
+
+  try {
+    // Module 11: delivery/read receipt columns + the status-event log —
+    // idempotent, so an existing install gains Module 11 with no manual step.
+    await ensureMessageStatusSchema();
+  } catch (error) {
+    console.error('Message-status schema upgrade failed (run `npm run migrate`):', error.message);
+  }
+
+  try {
+    // Module 12: voice calls + the call event log — idempotent, so an existing
+    // install gains calling with no manual migration step.
+    await ensureCallsSchema();
+  } catch (error) {
+    console.error('Calling schema upgrade failed (run `npm run migrate`):', error.message);
+  }
+
+  // Module 11: safety net for status events that raced their message row.
+  // unref() so the timer never keeps the process alive on shutdown.
+  setInterval(() => {
+    reconcileStatusEvents({ limit: 100 }).catch((error) =>
+      console.error('Status reconciliation failed:', error.message)
+    );
+  }, 30_000).unref();
+
+  // Module 12: never leave a call stuck in-flight after a lost webhook or a
+  // browser that vanished mid-call.
+  setInterval(() => {
+    sweepStaleCalls().catch((error) =>
+      console.error('Stale-call sweep failed:', error.message)
+    );
+  }, 60_000).unref();
 });
 
 async function shutdown(signal) {

@@ -3,17 +3,21 @@ import { config } from '../config.js';
 import { sendTextMessage } from '../lib/whatsapp/client.js';
 import { maybeSendAwayMessage } from '../away/away.service.js';
 import { runAutomationForInbound } from '../automation/automation.service.js';
+import { notifyInboundMessage } from '../notifications/notification.service.js';
+import { handleCallEvent, handleCallStatus } from '../calls/call.service.js';
 import {
   getOrCreateOpenConversation,
   touchConversation,
 } from './conversation.repository.js';
 import {
-  applyProviderStatus,
+  applyStatusEvent,
   confirmOutboundMessage,
   failOutboundMessage,
   findMessageIdByWaMessageId,
   insertInboundMessage,
   insertOutboundMessage,
+  reconcileStatusEvents,
+  recordStatusEvent,
   recordWebhookEvent,
 } from './message.repository.js';
 
@@ -51,6 +55,16 @@ async function handleInbound(raw) {
   if (!inserted) return { skipped: true };
 
   await touchConversation(conversation.id, previewFor(raw));
+
+  // Module 10 — notify eligible staff (the conversation's owner, or the admins
+  // when it is unassigned) about the new message. Wrapped so a notification
+  // problem can never lose a customer message; the dedupe index absorbs any
+  // retry, and NOTHING here changes assignment.
+  try {
+    await notifyInboundMessage(conversation, { id: inserted.id, body: raw.body, type: raw.type });
+  } catch (error) {
+    console.error('Failed to create notification:', error.message);
+  }
 
   // Module 6 — automatic Away Message.
   //
@@ -103,15 +117,34 @@ async function handleInbound(raw) {
   return { conversationId: conversation.id, messageId: inserted.id };
 }
 
+/**
+ * Module 11 — one delivery/read receipt. The event is persisted first (deduped
+ * on wamid + status + timestamp) so a receipt that arrives before its message
+ * row exists is not lost; applyStatusEvent() then moves the message forward.
+ * Unmatched events are picked up later by reconcileStatusEvents().
+ */
 async function handleStatus(raw) {
-  const updated = await applyProviderStatus(
-    raw.waMessageId,
-    raw.status,
-    raw.errorCode,
-    raw.errorDetail
-  );
+  const eventId = await recordStatusEvent({
+    waMessageId: raw.waMessageId,
+    status: raw.status,
+    timestamp: raw.timestamp,
+    errorCode: raw.errorCode,
+    errorDetail: raw.errorDetail,
+    // Safe, credential-free copy of the status object only.
+    payload: {
+      id: raw.waMessageId,
+      status: raw.status,
+      timestamp: raw.timestamp,
+      recipientId: raw.recipientId,
+      errorCode: raw.errorCode,
+      errorDetail: raw.errorDetail,
+    },
+  });
 
-  return { updated: Boolean(updated) };
+  if (!eventId) return { updated: false, duplicate: true };
+
+  const result = await applyStatusEvent(eventId);
+  return { updated: result.applied };
 }
 
 /**
@@ -122,10 +155,10 @@ async function handleStatus(raw) {
 let queue = Promise.resolve();
 
 export function ingestWebhookPayload(payload) {
-  const { inbound, statuses } = parseWebhookPayload(payload);
+  const { inbound, statuses, calls, callStatuses } = parseWebhookPayload(payload);
 
   const work = queue.then(async () => {
-    const summary = { inbound: 0, statuses: 0, failed: 0 };
+    const summary = { inbound: 0, statuses: 0, calls: 0, failed: 0 };
 
     for (const raw of inbound) {
       try {
@@ -144,6 +177,38 @@ export function ingestWebhookPayload(payload) {
       } catch (error) {
         summary.failed += 1;
         console.error('Failed to apply status update', raw.waMessageId, error.message);
+      }
+    }
+
+    // Module 12 — call connect/terminate events. Guarded so a calling problem
+    // can never affect message ingestion; duplicates are absorbed by the
+    // call_events dedupe key.
+    for (const raw of calls) {
+      try {
+        if (await handleCallEvent(raw)) summary.calls += 1;
+      } catch (error) {
+        summary.failed += 1;
+        console.error('Failed to process call event', raw.waCallId, error.message);
+      }
+    }
+
+    for (const raw of callStatuses) {
+      try {
+        if (await handleCallStatus(raw)) summary.calls += 1;
+      } catch (error) {
+        summary.failed += 1;
+        console.error('Failed to apply call status', raw.waCallId, error.message);
+      }
+    }
+
+    // A receipt can race the local `sent` write (or arrive for a message another
+    // instance just stored). Sweep the still-unmatched events once now; the boot
+    // timer in index.js is the safety net for anything that lands later.
+    if (statuses.length) {
+      try {
+        await reconcileStatusEvents({ limit: 50 });
+      } catch (error) {
+        console.error('Status reconciliation failed:', error.message);
       }
     }
 

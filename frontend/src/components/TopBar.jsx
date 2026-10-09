@@ -1,7 +1,29 @@
 import { useEffect, useState } from 'react';
 import Avatar from './Avatar.jsx';
+import NotificationBell from './NotificationBell.jsx';
 
-export default function TopBar({ staff, counts, onRefresh, refreshing, onLogout, onManageAgents, onManageTags, onManageSettings, onManagePerformance, onManageAutomation }) {
+export default function TopBar({
+  staff,
+  counts,
+  onRefresh,
+  refreshing,
+  onLogout,
+  onManageAgents,
+  onManageTags,
+  onManageSettings,
+  onManagePerformance,
+  onManageAutomation,
+  onOpenReminders,
+  notifications = [],
+  unread = 0,
+  notifSound,
+  notifBrowser,
+  notifBrowserSupported,
+  onToggleNotifSound,
+  onToggleNotifBrowser,
+  onOpenNotification,
+  onMarkAllNotifRead,
+}) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -44,6 +66,27 @@ export default function TopBar({ staff, counts, onRefresh, refreshing, onLogout,
             <path d="M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
+
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onOpenReminders}
+          title="Follow-up reminders"
+        >
+          Reminders
+        </button>
+
+        <NotificationBell
+          notifications={notifications}
+          unread={unread}
+          soundEnabled={notifSound}
+          browserEnabled={notifBrowser}
+          browserSupported={notifBrowserSupported}
+          onToggleSound={onToggleNotifSound}
+          onToggleBrowser={onToggleNotifBrowser}
+          onOpen={onOpenNotification}
+          onMarkAllRead={onMarkAllNotifRead}
+        />
 
         <span className="topbar-time" title={now.toLocaleString()}>
           {now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}

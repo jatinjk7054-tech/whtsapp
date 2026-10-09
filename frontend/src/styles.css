@@ -746,6 +746,16 @@ button:focus-visible {
   text-overflow: ellipsis;
 }
 
+.bubble-ticks.status-pending,
+.bubble-ticks.status-queued {
+  color: rgba(233, 237, 239, 0.55);
+}
+
+.bubble-ticks.status-sent,
+.bubble-ticks.status-delivered {
+  color: rgba(233, 237, 239, 0.92);
+}
+
 .bubble-ticks.status-read {
   color: #53bdeb;
 }
@@ -759,6 +769,30 @@ button:focus-visible {
   font-size: 11.5px;
   color: #ffc4cb;
   overflow-wrap: anywhere;
+}
+
+.bubble-failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bubble-retry {
+  flex: 0 0 auto;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(241, 92, 109, 0.55);
+  background: rgba(241, 92, 109, 0.16);
+  color: #ffd0d6;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bubble-retry:hover {
+  background: rgba(241, 92, 109, 0.28);
 }
 
 .bubble-image {
@@ -3212,4 +3246,748 @@ button:focus-visible {
   .automation-log-row { grid-template-columns: 1fr 1fr; }
   .automation-log-head span:nth-child(n + 3),
   .automation-log-row span:nth-child(n + 3) { display: none; }
+}
+
+/* ============================================================ Module 10 == */
+/* Notifications & follow-up reminders. Reuses the existing variable palette
+   and modal backdrop; only the pieces this module introduces are defined. */
+
+/* ------------------------------------------------------- notification bell */
+.notif-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.notif-bell {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger, #c0392b);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(520px, calc(100dvh - 120px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.notif-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-prefs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.notif-pref {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.notif-list {
+  overflow: auto;
+  padding: 6px;
+}
+
+.notif-empty {
+  margin: 0;
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.notif-item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notif-item:hover { background: var(--surface-3); }
+.notif-item.unread { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+.notif-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.notif-dot.type-new_message { background: var(--accent); }
+.notif-dot.type-reminder_due { background: var(--warning, #d08b23); }
+
+.notif-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.notif-item-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.notif-type-chip {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.notif-item-text {
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notif-item-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------ shared modal */
+.modal {
+  width: min(720px, 100%);
+  max-height: min(820px, calc(100dvh - 48px));
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--surface-3);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.modal-subtitle {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.form-error {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--danger-soft, rgba(192, 57, 43, 0.18));
+  color: #ffd7d2;
+  font-size: 13px;
+}
+
+.ghost-button.danger:hover:not(:disabled) { color: var(--danger, #c0392b); }
+
+/* ------------------------------------------------------------ reminder form */
+.reminder-form { width: min(560px, 100%); }
+
+.reminder-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 22px;
+}
+
+.reminder-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.reminder-field input,
+.reminder-field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2, var(--surface));
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.reminder-field input:focus-visible,
+.reminder-field textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.reminder-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2, var(--surface));
+}
+
+.reminder-target-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.reminder-target strong { flex: 1; }
+
+.reminder-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reminder-picker-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 4px;
+  background: var(--surface-2, var(--surface));
+}
+
+.reminder-picker-hint {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.reminder-picker-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reminder-picker-item:hover { background: var(--surface-3); }
+.reminder-picker-item span { color: var(--muted); font-size: 12px; }
+
+/* ---------------------------------------------------- reminders dashboard */
+.reminders-dashboard {
+  width: min(980px, 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.reminders-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reminders-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reminders-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reminders-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2, var(--surface));
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.reminders-tab:hover { color: var(--text); }
+.reminders-tab.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.reminders-tab-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.reminders-search {
+  min-width: 220px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2, var(--surface));
+  color: var(--text);
+  font: inherit;
+}
+
+.reminders-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  overflow: auto;
+  min-height: 160px;
+}
+
+.reminders-empty {
+  margin: 40px auto;
+  color: var(--muted);
+}
+
+.reminder-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 11px;
+  background: var(--surface-2, var(--surface));
+}
+
+.reminder-card.overdue { border-left-color: var(--danger, #c0392b); }
+.reminder-card.status-completed { border-left-color: #2e8b57; opacity: 0.85; }
+.reminder-card.status-cancelled { border-left-color: var(--muted); opacity: 0.7; }
+
+.reminder-card-main { min-width: 0; }
+
+.reminder-card-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reminder-contact {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reminder-contact:hover { text-decoration: underline; }
+
+.reminder-status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reminder-status.status-completed { color: #7ed9a4; }
+.reminder-status.status-cancelled { color: var(--muted); }
+
+.reminder-overdue-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--danger-soft, rgba(192, 57, 43, 0.2));
+  color: #ff9f97;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.reminder-title {
+  margin: 8px 0 2px;
+  font-size: 14px;
+}
+
+.reminder-notes {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.reminder-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reminder-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.reminders-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.reminders-pager { display: flex; gap: 8px; }
+
+@media (max-width: 640px) {
+  .reminder-card { flex-direction: column; }
+  .reminder-card-actions { flex-direction: row; flex-wrap: wrap; }
+  .reminders-toolbar { align-items: stretch; }
+  .reminders-search { min-width: 0; width: 100%; }
+}
+
+/* ---------- Module 12: WhatsApp voice calling ---------- */
+
+.notif-dot.type-missed_call { background: var(--danger); }
+
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.call-card {
+  width: min(340px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 22px 22px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.call-card.incoming { border-color: var(--accent); }
+
+.call-avatar { margin-bottom: 4px; }
+
+.call-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  min-height: 20px;
+}
+
+.call-card.incoming .call-status { color: var(--accent); }
+
+.call-timer {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.call-number {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.call-number:hover { text-decoration: underline; }
+
+.call-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.call-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.call-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 76px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.call-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.call-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.call-btn.answer { background: var(--accent-strong); }
+.call-btn.decline { background: var(--danger); }
+.call-btn.mute { background: var(--surface-3); color: var(--text); }
+.call-btn.mute.active { background: var(--warning); color: #1c1c1c; }
+.call-btn.close { background: var(--surface-3); color: var(--text); min-width: 110px; }
+
+.call-button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Call history */
+
+.call-history-modal,
+.calling-setup-modal {
+  width: min(560px, 100%);
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.call-history-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.call-history-error {
+  margin: 0 0 12px;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.call-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.call-history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.call-history-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex: none;
+  font-size: 15px;
+}
+
+.call-history-icon.inbound { background: var(--accent-strong); color: #fff; }
+.call-history-icon.outbound { background: var(--surface-3); color: var(--text); }
+
+.call-history-item.status-missed .call-history-icon,
+.call-history-item.status-failed .call-history-icon { background: var(--danger); color: #fff; }
+
+.call-history-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.call-history-title { font-size: 14px; }
+.call-history-item.status-missed .call-history-title,
+.call-history-item.status-failed .call-history-title { color: var(--danger); }
+
+.call-history-meta { color: var(--muted); font-size: 12px; }
+
+.call-history-agent {
+  color: var(--muted);
+  font-size: 12px;
+  flex: none;
+}
+
+/* Calling setup checklist */
+
+.calling-checklist {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.checklist-mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.checklist-item.state-done .checklist-mark { background: var(--accent-strong); color: #fff; }
+.checklist-item.state-todo .checklist-mark { background: var(--danger); color: #fff; }
+.checklist-item.state-manual .checklist-mark { background: var(--surface-3); color: var(--muted); }
+
+.checklist-manual { color: var(--muted); font-style: normal; }
+
+.calling-notes {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.calling-notes h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.calling-facts {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.calling-setup-modal code {
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+
+@media (max-width: 560px) {
+  .call-history-agent { display: none; }
 }

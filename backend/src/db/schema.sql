@@ -59,10 +59,11 @@ CREATE TABLE IF NOT EXISTS messages (
   id SERIAL PRIMARY KEY,
   conversation_id INTEGER NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  -- 'received' for inbound. Outbound walks queued -> sent -> delivered -> read,
-  -- or -> failed. Keeps the raw provider state for the UI.
+  -- 'received' for inbound. Outbound walks pending -> sent -> delivered -> read,
+  -- or -> failed. Keeps the raw provider state for the UI. ('queued' is the
+  -- legacy spelling of 'pending', kept in the CHECK for old rows.)
   status TEXT NOT NULL DEFAULT 'received'
-    CHECK (status IN ('received', 'queued', 'sent', 'delivered', 'read', 'failed')),
+    CHECK (status IN ('received', 'pending', 'queued', 'sent', 'delivered', 'read', 'failed')),
   type TEXT NOT NULL DEFAULT 'text',
   body TEXT NOT NULL DEFAULT '',
   -- Set once the provider returns an id (inbound immediately, outbound on accept).

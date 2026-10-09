@@ -9,7 +9,9 @@ import {
   confirmOutboundMessage,
   failOutboundMessage,
   findMessageById,
+  findRetryableMessage,
   insertOutboundMessage,
+  resetOutboundForRetry,
 } from './message.repository.js';
 
 const MAX_TEXT_LENGTH = 4096;
@@ -229,4 +231,89 @@ export async function forwardMessage(staff, targetConversationId, sourceMessageI
     await failOutboundMessage(messageId, error.code, error.message);
     throw error;
   }
+}
+
+/** Rebuilds the Meta send arguments for a failed row so Retry can reuse it. */
+async function prepareRetry(conversation, message) {
+  const contextMessageId = message.reply_to_id
+    ? (await findMessageById(message.reply_to_id))?.wa_message_id ?? undefined
+    : undefined;
+
+  if (message.type === 'template') {
+    const params = message.template_params ?? {};
+    const header = params.header;
+
+    let headerMedia;
+    if (header?.type && header.url) {
+      headerMedia = { type: header.type, url: header.url };
+    } else if (header?.type && header.mediaPath) {
+      const match = /^\/api\/media\/(.+)$/.exec(header.mediaPath);
+      if (match) {
+        const { buffer, mimeType } = await downloadMedia(match[1]);
+        headerMedia = { type: header.type, base64: buffer.toString('base64'), mimeType };
+      }
+    }
+
+    const prepared = await prepareTemplateSend({
+      name: message.template_name,
+      language: message.template_language,
+      variables: params.variables,
+      headerVariables: params.headerVariables,
+      headerMedia,
+      buttonParams: params.buttonParams,
+    });
+
+    return {
+      type: 'template',
+      body: message.body,
+      template: {
+        name: message.template_name,
+        language: message.template_language,
+        components: prepared.components,
+      },
+    };
+  }
+
+  await assertWithin24hWindow(conversation.id);
+
+  if (message.type === 'text') {
+    return { type: 'text', body: message.body, contextMessageId };
+  }
+
+  const mediaUrl = message.media_url ?? '';
+  const mediaMatch = /^\/api\/media\/(.+)$/.exec(mediaUrl);
+  const media = mediaMatch ? { id: mediaMatch[1] } : { link: mediaUrl };
+
+  return { type: message.type, body: message.body, media, contextMessageId };
+}
+
+/**
+ * Module 11 — Retry a failed outgoing message. Only the caller's own (or, for an
+ * admin, any) conversation can be retried, and only a row still marked `failed`.
+ * The same row, wamid slot and bubble are reused — nothing is duplicated.
+ */
+export async function retryOutboundMessage(staff, conversationId, messageId) {
+  const conversation = await getConversationById(conversationId);
+  if (!conversation) throw new HttpError(404, 'Conversation not found');
+  assertSendable(staff, conversation);
+
+  const message = await findRetryableMessage(messageId);
+  if (!message || message.conversation_id !== conversationId) {
+    throw new HttpError(404, 'Message not found');
+  }
+  if (message.direction !== 'outbound') {
+    throw new HttpError(422, 'Only outgoing messages can be retried');
+  }
+  if (message.status !== 'failed') {
+    throw new HttpError(409, 'Only failed messages can be retried');
+  }
+
+  const args = await prepareRetry(conversation, message);
+
+  await resetOutboundForRetry(messageId);
+
+  const confirmed = await dispatch(conversation, { id: messageId, ...args });
+  await touchConversation(conversationId, message.body || `[${message.type}]`);
+
+  return { id: messageId, status: 'sent', waMessageId: confirmed?.wa_message_id ?? null };
 }

@@ -19,6 +19,10 @@ export default function ChatPanel({
   quickRepliesVersion,
   replyTo,
   focusMessageId,
+  callingEnabled,
+  onStartCall,
+  onOpenCallHistory,
+  onShowCallingSetup,
   onLoadOlder,
   onRetry,
   onRetryOlder,
@@ -27,6 +31,7 @@ export default function ChatPanel({
   onStatusChange,
   onOpenProfile,
   onOpenSearchResult,
+  onSetReminder,
   onSend,
   onSendTemplate,
   onSendMedia,
@@ -34,6 +39,7 @@ export default function ChatPanel({
   onCancelReply,
   onForward,
   onJumpToMessage,
+  onRetryMessage,
   onFocusHandled,
   onBack,
 }) {
@@ -70,6 +76,10 @@ export default function ChatPanel({
       : (replyTo.sent_by_staff_name || 'You')
     : null;
 
+  // Module 12 — calling follows the same ownership rule as sending; a closed
+  // thread is not callable until reopened.
+  const canCall = isOwner && !isClosed;
+
   return (
     <section className="chat-panel">
       <ChatHeader
@@ -79,11 +89,17 @@ export default function ChatPanel({
         staffList={staffList}
         busy={busy}
         error={headerError}
+        canCall={canCall}
+        callingEnabled={Boolean(callingEnabled)}
+        onStartCall={() => onStartCall?.(conversation)}
+        onOpenCallHistory={() => onOpenCallHistory?.(conversation)}
+        onShowCallingSetup={onShowCallingSetup}
         onClaim={onClaim}
         onAssign={onAssign}
         onStatusChange={onStatusChange}
         onOpenProfile={onOpenProfile}
         onOpenSearchResult={onOpenSearchResult}
+        onSetReminder={onSetReminder}
         onBack={onBack}
       />
 
@@ -103,6 +119,7 @@ export default function ChatPanel({
         onReply={onReply}
         onForward={onForward}
         onJumpToMessage={onJumpToMessage}
+        onRetryMessage={onRetryMessage}
       />
 
       <MessageComposer

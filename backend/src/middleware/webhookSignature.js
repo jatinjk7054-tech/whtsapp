@@ -23,6 +23,11 @@ export function verifyWebhookSignature(req, res, next) {
       return next();
     }
 
+    console.warn(
+      'WHATSAPP WEBHOOK REJECTED: signature verification disabled (no WHATSAPP_APP_SECRET)',
+      JSON.stringify({ method: req.method, path: req.originalUrl })
+    );
+
     return res.status(503).json({
       error: 'webhook_signature_verification_disabled',
       message: 'Set WHATSAPP_APP_SECRET to enable signature verification.',
@@ -33,6 +38,10 @@ export function verifyWebhookSignature(req, res, next) {
   const [scheme, provided] = header.split('=');
 
   if (scheme !== 'sha256' || !provided) {
+    console.warn(
+      'WHATSAPP WEBHOOK REJECTED: missing/invalid X-Hub-Signature-256 header',
+      JSON.stringify({ method: req.method, path: req.originalUrl, hasHeader: Boolean(header) })
+    );
     return res.status(401).json({ error: 'invalid_signature' });
   }
 
@@ -44,6 +53,10 @@ export function verifyWebhookSignature(req, res, next) {
     providedBuffer.length !== expectedBuffer.length ||
     !timingSafeEqual(providedBuffer, expectedBuffer)
   ) {
+    console.warn(
+      'WHATSAPP WEBHOOK REJECTED: signature mismatch (check WHATSAPP_APP_SECRET matches the Meta App)',
+      JSON.stringify({ method: req.method, path: req.originalUrl })
+    );
     return res.status(401).json({ error: 'invalid_signature' });
   }
 

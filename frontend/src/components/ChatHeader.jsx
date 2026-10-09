@@ -10,10 +10,16 @@ export default function ChatHeader({
   error,
   isAdmin,
   staffList = [],
+  canCall = false,
+  callingEnabled = false,
+  onStartCall,
+  onOpenCallHistory,
+  onShowCallingSetup,
   onAssign,
   onStatusChange,
   onOpenProfile,
   onOpenSearchResult,
+  onSetReminder,
   onBack,
 }) {
   const displayName = conversation.contact_name?.trim() || conversation.contact_wa_id;
@@ -107,6 +113,56 @@ export default function ChatHeader({
           title="Customer profile: name, number, tags, notes"
         >
           Profile
+        </button>
+
+        {/* Module 12 — voice calling. When it is not configured we show no call
+            button to agents, and only an admin-facing "Setup" link, so nobody is
+            ever offered a call that cannot be placed. */}
+        {callingEnabled ? (
+          <>
+            <button
+              type="button"
+              className="icon-button call-button"
+              onClick={onStartCall}
+              disabled={busy || !canCall}
+              title={canCall ? 'Start a WhatsApp voice call' : 'You cannot call this conversation'}
+              aria-label="Start voice call"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15.5c-1.6-1.6-3.4-2.4-5-2.6-.5-.1-1 .1-1.4.5l-1 1c-2-1-3.6-2.6-4.6-4.6l1-1c.4-.4.6-.9.5-1.4C10.3 5.8 9.5 4 7.9 2.4 7.5 2 6.9 2 6.5 2.3 4.6 3.7 3.4 5.7 3.7 8c.3 2.6 1.9 5.6 4.7 8.4 2.8 2.8 5.8 4.4 8.4 4.7 2.3.3 4.3-.9 5.7-2.8.3-.4.3-1-.1-1.4z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={onOpenCallHistory}
+              disabled={busy}
+              title="Call history"
+            >
+              Calls
+            </button>
+          </>
+        ) : (
+          isAdmin && (
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={onShowCallingSetup}
+              title="WhatsApp Calling is not set up yet"
+            >
+              Call setup
+            </button>
+          )
+        )}
+
+        <button
+          type="button"
+          className="ghost-button compact reminder-button"
+          onClick={onSetReminder}
+          disabled={busy}
+          title="Set a follow-up reminder for this customer"
+        >
+          Reminder
         </button>
 
         <label className="select-field">

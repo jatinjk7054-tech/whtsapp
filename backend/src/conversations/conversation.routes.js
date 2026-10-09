@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute } from '../middleware/asyncRoute.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
-import { sendReply, sendUploadedMedia, forwardMessage } from './outbound.service.js';
+import {
+  sendReply,
+  sendUploadedMedia,
+  forwardMessage,
+  retryOutboundMessage,
+} from './outbound.service.js';
 import {
   assign,
   claim,
@@ -14,6 +19,8 @@ import {
   unassign,
   createConversationForOutbound,
 } from './conversation.service.js';
+import * as callService from '../calls/call.service.js';
+import { startCallBody } from '../calls/call.schema.js';
 
 export const conversationRouter = Router();
 
@@ -189,6 +196,27 @@ conversationRouter.get(
   })
 );
 
+// Module 12 — call history for a thread, plus the active call to resume after a
+// refresh. Same ownership gate as every other conversation read.
+conversationRouter.get(
+  '/:id/calls',
+  asyncRoute(async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    res.json(await callService.listForConversation(req.staff, id));
+  })
+);
+
+// Module 12 — place an outbound call. The body carries the browser's SDP offer;
+// the response is the call row the UI polls for Meta's answer.
+conversationRouter.post(
+  '/:id/calls',
+  asyncRoute(async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    const { sdpOffer } = startCallBody.parse(req.body);
+    res.status(201).json(await callService.startOutbound(req.staff, id, { sdpOffer }));
+  })
+);
+
 conversationRouter.post(
   '/:id/media',
   asyncRoute(async (req, res) => {
@@ -231,6 +259,21 @@ conversationRouter.post(
         replyToId,
       })
     );
+  })
+);
+
+// Module 11 — Retry a failed outgoing message. Same ownership gate as sending,
+// and only a row the provider actually marked failed can be retried.
+conversationRouter.post(
+  '/:id/messages/:messageId/retry',
+  asyncRoute(async (req, res) => {
+    const { id, messageId } = z
+      .object({
+        id: z.coerce.number().int().positive(),
+        messageId: z.coerce.number().int().positive(),
+      })
+      .parse(req.params);
+    res.status(201).json(await retryOutboundMessage(req.staff, id, messageId));
   })
 );
 
